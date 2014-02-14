@@ -437,6 +437,7 @@ static void do_client(int argc, char *argv[])
     SSL_CTX *ssl_ctx;
     SSL *ssl = NULL;
     int quiet = 0;
+    int ign_eof = 0;
     int cert_index = 0, ca_cert_index = 0;
     int cert_size, ca_cert_size;
     char **ca_cert, **cert;
@@ -519,6 +520,10 @@ static void do_client(int argc, char *argv[])
         {
             quiet = 1;
             options &= ~SSL_DISPLAY_CERTS;
+        }
+        else if (strcmp(argv[i], "-ign_eof") == 0)
+        {
+            ign_eof = 1;
         }
         else if (strcmp(argv[i], "-pass") == 0)
         {
@@ -680,7 +685,7 @@ static void do_client(int argc, char *argv[])
         display_cipher(ssl);
     }
 
-    for (;;)
+    for (i = 1;;)
     {
         uint8_t buf[1024];
 
@@ -688,7 +693,8 @@ static void do_client(int argc, char *argv[])
         FD_SET(client_fd, &read_set);
 #ifndef WIN32
         /* win32 doesn't like mixing up stdin and sockets */
-        FD_SET(STDIN_FILENO, &read_set);
+        FD_CLR(STDIN_FILENO, &read_set);
+        i ? FD_SET(STDIN_FILENO, &read_set) : 0;
 
         if ((res = select(client_fd+1, &read_set, NULL, NULL, NULL)) > 0)
         {
@@ -698,9 +704,17 @@ static void do_client(int argc, char *argv[])
             {
                 if (fgets((char *)buf, sizeof(buf), stdin) == NULL)
                 {
-                    /* bomb out of here */
-                    ssl_free(ssl);
-                    break;
+                    /* eof */
+                    if (ign_eof)
+                    {
+                        i = 0;
+                    }
+                    else
+                    {
+                        /* bomb out of here */
+                        ssl_free(ssl);
+                        break;
+                    }
                 }
                 else
                 {
@@ -817,6 +831,7 @@ static void print_client_options(char *option)
     printf(" -CAfile arg\t- Certificate authority\n");
     printf("\t\t  Can repeat up to %d times\n", ca_cert_size);
     printf(" -quiet\t\t- No client output\n");
+    printf(" -ign_eof\t\t- Ignore input eof\n");
     printf(" -reconnect\t- Drop and re-make the connection "
             "with the same Session-ID\n");
     printf(" -pass\t\t- private key file pass phrase source\n");
