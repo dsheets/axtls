@@ -725,7 +725,7 @@ static void do_client(int argc, char *argv[])
                     }
                     else
                     {
-                        res = ssl_write(ssl, buf, strlen((char *)buf)+1);
+                        res = ssl_write(ssl, buf, strlen((char *)buf));
                     }
                 }
             }
