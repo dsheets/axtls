@@ -350,7 +350,7 @@ static void do_server(int argc, char *argv[])
                         }
                         else    /* write our ramblings to the client */
                         {
-                            res = ssl_write(ssl, buf, strlen((char *)buf)+1);
+                            res = ssl_write(ssl, buf, strlen((char *)buf));
                         }
                     }
                 }
