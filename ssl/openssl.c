@@ -44,31 +44,43 @@
 #include <stdarg.h>
 #include "os_port.h"
 #include "ssl.h"
-
-#define OPENSSL_CTX_ATTR  ((OPENSSL_CTX *)ssl_ctx->bonus_attr)
+#include "openssl.h"
 
 static char *key_password = NULL;
 
-void *SSLv23_server_method(void) { return NULL; }
-void *SSLv3_server_method(void) { return NULL; }
-void *TLSv1_server_method(void) { return NULL; }
-void *SSLv23_client_method(void) { return NULL; }
-void *SSLv3_client_method(void) { return NULL; }
-void *TLSv1_client_method(void) { return NULL; }
+SSL_METHOD _sslv23_server_method = { .ctor = SSLv23_server_method, };
+const SSL_METHOD *SSLv23_server_method(void) { return &_sslv23_server_method; }
 
-typedef void * (*ssl_func_type_t)(void);
+SSL_METHOD _sslv3_server_method = { .ctor = SSLv3_server_method, };
+const SSL_METHOD *SSLv3_server_method(void) { return &_sslv3_server_method; }
+
+SSL_METHOD _tlsv1_server_method = { .ctor = TLSv1_server_method, };
+const SSL_METHOD *TLSv1_server_method(void) { return &_tlsv1_server_method; }
+
+SSL_METHOD _sslv23_client_method = { .ctor = SSLv23_client_method, };
+const SSL_METHOD *SSLv23_client_method(void) { return &_sslv23_client_method; }
+
+SSL_METHOD _sslv3_client_method = { .ctor = SSLv3_client_method, };
+const SSL_METHOD *SSLv3_client_method(void) { return &_sslv3_client_method; }
+
+SSL_METHOD _tlsv1_client_method = { .ctor = TLSv1_client_method, };
+const SSL_METHOD *TLSv1_client_method(void) { return &_tlsv1_client_method; }
+
+SSL_METHOD _sslv23_method = { .ctor = SSLv23_method, };
+const SSL_METHOD *SSLv23_method(void) { return &_sslv23_method; }
+
 typedef void * (*bio_func_type_t)(void);
 
 typedef struct
 {
-    ssl_func_type_t ssl_func_type;
+    SSL_METHOD ssl_method;
 } OPENSSL_CTX;
 
-SSL_CTX * SSL_CTX_new(ssl_func_type_t meth)
+SSL_CTX * SSL_CTX_new(const SSL_METHOD *method)
 {
     SSL_CTX *ssl_ctx = ssl_ctx_new(0, 5);
-    ssl_ctx->bonus_attr = malloc(sizeof(OPENSSL_CTX));
-    OPENSSL_CTX_ATTR->ssl_func_type = meth;
+    ssl_ctx->bonus_attr = malloc(sizeof(SSL_METHOD));
+    OPENSSL_CTX_ATTR->ssl_method = *method;
     return ssl_ctx;
 }
 
@@ -81,15 +93,15 @@ void SSL_CTX_free(SSL_CTX * ssl_ctx)
 SSL * SSL_new(SSL_CTX *ssl_ctx)
 {
     SSL *ssl;
-    ssl_func_type_t ssl_func_type;
+    const SSL_METHOD *(*ssl_method_ctor)(void);
 
     ssl = ssl_new(ssl_ctx, -1);        /* fd is set later */
-    ssl_func_type = OPENSSL_CTX_ATTR->ssl_func_type;
+    ssl_method_ctor = OPENSSL_CTX_ATTR->ssl_method.ctor;
 
 #ifdef CONFIG_SSL_ENABLE_CLIENT
-    if (ssl_func_type == SSLv23_client_method ||
-        ssl_func_type == SSLv3_client_method ||
-        ssl_func_type == TLSv1_client_method)
+    if (ssl_method_ctor == SSLv23_client_method ||
+        ssl_method_ctor == SSLv3_client_method ||
+        ssl_method_ctor == TLSv1_client_method)
     {
         SET_SSL_FLAG(SSL_IS_CLIENT);
     }
@@ -167,13 +179,13 @@ int SSL_CTX_use_certificate_ASN1(SSL_CTX *ssl_ctx, int len, const uint8_t *d)
                         SSL_OBJ_X509_CERT, d, len, NULL) == SSL_OK);
 }
 
-int SSL_CTX_set_session_id_context(SSL_CTX *ctx, const unsigned char *sid_ctx,
+int SSL_CTX_set_session_id_context(SSL_CTX *ssl_ctx, const unsigned char *sid_ctx,
                                             unsigned int sid_ctx_len)
 {
     return 1;
 }
 
-int SSL_CTX_set_default_verify_paths(SSL_CTX *ctx)
+int SSL_CTX_set_default_verify_paths(SSL_CTX *ssl_ctx)
 {
     return 1;
 }
@@ -204,38 +216,37 @@ int SSL_set_session(SSL *ssl, SSL_SESSION *session)
 void SSL_SESSION_free(SSL_SESSION *session) { }
 /*** end get/set session ***/
 
-long SSL_CTX_ctrl(SSL_CTX *ctx, int cmd, long larg, void *parg)
+/* TODO: shouldn't be here? */
+long SSL_CTX_ctrl(SSL_CTX *ssl_ctx, int cmd, long larg, void *parg)
 {
     return 0;
 }
 
-void SSL_CTX_set_verify(SSL_CTX *ctx, int mode,
-                                 int (*verify_callback)(int, void *)) { }
+void SSL_CTX_set_verify(SSL_CTX *ssl_ctx, int mode,
+                        int (*verify_callback)(int, X509_STORE_CTX *)) { }
 
-void SSL_CTX_set_verify_depth(SSL_CTX *ctx,int depth) { }
+void SSL_CTX_set_verify_depth(SSL_CTX *ssl_ctx,int depth) { }
 
-int SSL_CTX_load_verify_locations(SSL_CTX *ctx, const char *CAfile,
+int SSL_CTX_load_verify_locations(SSL_CTX *ssl_ctx, const char *CAfile,
                                            const char *CApath)
 {
     return 1;
 }
 
-void *SSL_load_client_CA_file(const char *file)
+STACK_OF(X509_NAME) *SSL_load_client_CA_file(const char *file)
 {
     return (void *)file;
 }
 
-void SSL_CTX_set_client_CA_list(SSL_CTX *ssl_ctx, void *file) 
+void SSL_CTX_set_client_CA_list(SSL_CTX *ssl_ctx, void *file) /* list?? */
 { 
 
     ssl_obj_load(ssl_ctx, SSL_OBJ_X509_CERT, (const char *)file, NULL);
 }
 
-void SSLv23_method(void) { }
+void SSL_CTX_set_default_passwd_cb(SSL_CTX *ssl_ctx, pem_password_cb *cb) { }
 
-void SSL_CTX_set_default_passwd_cb(SSL_CTX *ctx, void *cb) { }
-
-void SSL_CTX_set_default_passwd_cb_userdata(SSL_CTX *ctx, void *u) 
+void SSL_CTX_set_default_passwd_cb_userdata(SSL_CTX *ssl_ctx, void *u)
 { 
     key_password = (char *)u;
 }
@@ -246,21 +257,21 @@ int SSL_peek(SSL *ssl, void *buf, int num)
     return num;
 }
 
-void SSL_set_bio(SSL *ssl, void *rbio, void *wbio) { }
+void SSL_set_bio(SSL *ssl, BIO *rbio, BIO *wbio) { }
 
 long SSL_get_verify_result(const SSL *ssl)
 {
     return ssl_handshake_status(ssl);
 }
 
-int SSL_state(SSL *ssl)
+int SSL_state(const SSL *ssl)
 {
     return 0x03; // ok state
 }
 
 /** end of could do better list */
 
-void *SSL_get_peer_certificate(const SSL *ssl)
+X509 *SSL_get_peer_certificate(const SSL *ssl)
 {
     return &ssl->ssl_ctx->certs[0];
 }
@@ -271,12 +282,12 @@ int SSL_clear(SSL *ssl)
 }
 
 
-int SSL_CTX_check_private_key(const SSL_CTX *ctx)
+int SSL_CTX_check_private_key(const SSL_CTX *ssl_ctx)
 {
     return 1;
 }
 
-int SSL_CTX_set_cipher_list(SSL *s, const char *str)
+int SSL_CTX_set_cipher_list(SSL_CTX *ssl_ctx, const char *str)
 {
     return 1;
 }
@@ -287,7 +298,11 @@ int SSL_get_error(const SSL *ssl, int ret)
     return 0;   /* TODO: return proper return code */
 }
 
-void SSL_CTX_set_options(SSL_CTX *ssl_ctx, int option) {}
+long SSL_CTX_set_options(SSL_CTX *ssl_ctx, long options)
+{
+    return options;
+}
+
 int SSL_library_init(void ) { return 1; }
 void SSL_load_error_strings(void ) {}
 void ERR_print_errors_fp(FILE *fp) {}
