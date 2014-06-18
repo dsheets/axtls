@@ -128,6 +128,8 @@ extern "C" {
 #define SSL_RC4_128_SHA                         0x05
 #define SSL_RC4_128_MD5                         0x04
 
+#define TLS_EMPTY_RENEGOTIATION_INFO_SCSV       0xff
+
 /* build mode ids' */
 #define SSL_BUILD_SKELETON_MODE                 0x01
 #define SSL_BUILD_SERVER_ONLY                   0x02
